@@ -3,6 +3,8 @@ return {
   fields = {
     url = {required = true, type = "string"},
     timeout = { default = 10000, type = "number" },
-    forward_headers = { type = "array" }
+    debug = {default = false, type = "boolean" },
+    forward_headers = { type = "array" },
+    return_headers = { type = "array" }
   }
 }

@@ -15,7 +15,8 @@ $ curl -X POST http://kong:8001/apis/{api}/plugins \
     --data "name=oathkeeper" \
     --data "config.url=http://oathkeeper:4456/decisions" \
     --data "config.timeout=200" \
-    --data "config.forward_headers[1]=X-User-Id"
+    --data "config.forward_headers[1]=Authorization" \
+    --data "config.return_headers[1]=X-User-Id"
 ```
 
 #### Declarative way
@@ -35,7 +36,8 @@ services:
       config:
         url: http://oathkeeper:4456/decisions
         timeout: 200 # milliseconds
-        forward_headers: ["X-User-Id"]
+        forward_headers: ["Authorization"]
+        return_headers: ["X-User-Id"]
 ```
 
 #### Parameters
@@ -44,7 +46,8 @@ services:
 | name                   | yes      |         | The name of the plugin to use, in this case: oathkeeper                                                                                                            |
 | config.url             | yes      |         | The URL to decision API of the ORY OathKeeper where the plugin will make a request before proxying the original request. (e.g. `http://oathkeeper:4456/decisions`) |
 | config.timeout         | no       | 60000   | Timeout (miliseconds) for the request to the URL specified above.                                                                                                  |
-| config.forward_headers | no       |         | The array of headers' name from ORY OathKeeper response which will be passed to proxying request. (e.g. `["X-User-Id"]`)                                               |
+| config.forward_headers | no       |         | The array of headers' name from original request which will be passed to ORY OathKeeper decision API. (e.g. `["Authorization"]`)                                   |
+| config.return_headers  | no       |         | The array of headers' name from ORY OathKeeper response which will be passed to proxying request. (e.g. `["X-User-Id"]`)                                           |
 
 ## Author
 Timofey Solovyev

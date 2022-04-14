@@ -27,7 +27,7 @@ local function parse_url(host_url)
     return parsed_url
 end
 
-local function compose_payload(parsed_url)
+local function compose_payload(parsed_url, forward_headers)
     local headers = get_headers()
     local target_method = ngx.var.request_method
     local target_uri = ngx.var.request_uri
@@ -35,7 +35,9 @@ local function compose_payload(parsed_url)
     -- header payload
     local headers_payload = ""
     for header, value in pairs(headers) do
-        headers_payload = headers_payload .. header .. ": " .. value .. "\r\n"
+        if forward_headers[header] ~= nil then
+            headers_payload = headers_payload .. header .. ": " .. value .. "\r\n"
+        end
     end
 
     -- biuld url: path + query
@@ -51,6 +53,16 @@ local function compose_payload(parsed_url)
         target_method, url, target_uri, headers_payload)
 end
 
+-- headers_table takes array a and build hash table where key is lower-cased
+-- element from array and value is true
+local function headers_table(a)
+    local hash = {}
+    for _, v in ipairs(a) do
+        hash[string.lower(v)] = true
+    end
+    return hash
+end
+
 return function(self, conf)
     if not conf.run_on_preflight and get_method() == "OPTIONS" then
         return
@@ -61,12 +73,15 @@ return function(self, conf)
     local parsed_url = parse_url(conf.url)
     local host = parsed_url.host
     local port = tonumber(parsed_url.port)
-    local payload = compose_payload(parsed_url)
-    
-    local forward_headers = {}
-    for _, v in ipairs(conf.forward_headers) do
-        forward_headers[v] = true
+    local forward_headers = headers_table(conf.forward_headers)
+    local return_headers = headers_table(conf.return_headers)
+
+    -- Host is required header in OathKeeper
+    if forward_headers["host"] == nil then
+        forward_headers["host"] = true
     end
+
+    local payload = compose_payload(parsed_url, forward_headers)
 
     local sock = ngx.socket.tcp()
     sock:settimeout(conf.timeout)
@@ -99,6 +114,9 @@ return function(self, conf)
             message = "failed to send data to auth middleware"
         })
     end
+    if conf.debug then
+        print("\n***\nsent payload:\n" .. payload .. "\n***\n")
+    end
 
     local line, err = sock:receive("*l")
 
@@ -108,6 +126,9 @@ return function(self, conf)
             code = 500,
             message = "failed to read response status from auth middleware"
         })
+    end
+    if conf.debug then
+        print("\n***\nreceived first line:\n" .. line .. "\n***\n")
     end
     
     -- status code
@@ -130,20 +151,26 @@ return function(self, conf)
         if pair then
             local key = string.lower(pair[1])
             headers[key] = pair[2]
-            if forward_headers[key] ~= nil then
+            if return_headers[key] ~= nil then
                 kong.service.request.set_header(pair[1], pair[2])
+                if conf.debug then
+                    print(line)
+                end
             end
         end
     until ngx_re_find(line, "^\\s*$", "jo")
     
     -- body
-    local body, err = sock:receive(tonumber(headers['content-length']))
-    if err then
-        ngx.log(ngx.ERR, name .. "failed to read body " .. host .. ":" .. tostring(port) .. ": ", err)
-        return kong.response.exit(500, {
-            code = 500,
-            message = "failed to read body from auth middleware"
-        })
+    local body
+    if headers['content-length'] ~= nil then
+        body, err = sock:receive(tonumber(headers['content-length']))
+        if err then
+            ngx.log(ngx.ERR, name .. "failed to read body " .. host .. ":" .. tostring(port) .. ": ", err)
+            return kong.response.exit(500, {
+                code = 500,
+                message = "failed to read body from auth middleware"
+            })
+        end
     end
 
     if status_code > 299 then
